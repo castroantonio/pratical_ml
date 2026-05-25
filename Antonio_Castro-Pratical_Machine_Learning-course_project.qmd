@@ -1,0 +1,145 @@
+---
+title: "Pratical Machine Learning Project"
+author: "Antonio Castro"
+format: html
+---
+
+```{r}
+#| include: false
+
+# Project libraries
+library(caret)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(gbm)
+
+# Project configuration
+set.seed(1)
+```
+
+### Objective
+
+The present project uses data related to the way people do exercise, there are 5 different ways. The goal of this project is to fit a model, based on the training data, that is able to predict the manner they did the exercise.
+
+### Exploratory Analysis and Data Cleaning
+
+Let's read the data. As we may do some transformation in the data set, it is important to make the same transformation on both training and test data, so let's read both.
+
+```{r}
+train_data <- read.csv("pml-training.csv")
+test_data <- read.csv("pml-testing.csv")
+```
+
+First of all we need to understand the data set. As the data set has a lot of attributes (`r dim(train_data)[2]` in total), it is difficult to get information on all of them.
+
+It seems to be a lot of sensors data, some of the observations are filled only when the *new_window* attribute has "yes" in its value. Looks like it is a "summary" of the exercise window. As the test data will not be a summary, let's remove these summary observations, and the columns that are filled only when on that cases.
+
+Let's also remove attributes that are for identifying the observations, the first seven attributes. And turn the target attribute *classe* to a factor
+
+```{r}
+## Remove new_window == yes, and related columns
+train_data <- train_data[train_data$new_window != "yes", ]
+
+usefull_columns <- colSums(is.na(train_data)) != nrow(train_data) &
+  colSums(train_data == "") != nrow(train_data)
+
+train_data <- train_data[, usefull_columns]
+test_data <- test_data[, usefull_columns]
+
+## Remove identifying columns
+train_data <- train_data[, -c(1:7)]
+test_data <- test_data[, -c(1:7)]
+
+## classe attribute as a factor
+train_data$classe <- as.factor(train_data$classe)
+
+rm(usefull_columns)
+```
+
+At the end of this process we ended up with only `r dim(train_data)[2]` attributes.
+
+### Models
+
+As we have a lot of data it is expected a great accuracy, as much as 90% or greater. Let's make at least three different models and select the best one.
+
+#### Cross Validarion
+
+To validate our results, we have to divide the train data set into two parts, one to train the model (80%) and the other to validate its quality (20%):
+
+```{r}
+training_rows <- createDataPartition(y = train_data$classe, p = 0.8, list = FALSE)
+training <- train_data[training_rows, ]
+validation  <- train_data[-training_rows, ]
+
+rm(training_rows)
+```
+
+
+#### Decision Tree
+
+As a fisrt try let's train a Decision Tree.
+
+```{r, cached=TRUE}
+mod_tree <- rpart(classe ~ ., data = training, method = "class")
+
+## Prediction on validation
+pred_tree <- predict(mod_tree, validation, type = "class")
+cm_tree <- confusionMatrix(pred_tree, validation$classe)
+```
+
+The model got an Accuracy of `r cm_tree$overall['Accuracy']`.
+
+
+#### Random Forest
+
+As the Random Forest model uses more Decisions Trees, it is expected to get a better Accuracy.
+
+```{r, cached=TRUE}
+control_rf <- trainControl(method = "cv", number = 3, verboseIter = FALSE)
+mod_rf <- train(classe ~ ., data = training, method = "rf", trControl = control_rf)
+
+## Prediction on validation
+pred_rf <- predict(mod_rf, validation)
+cm_rf <- confusionMatrix(pred_rf, validation$classe)
+```
+
+Its results are really better, Accuracy of `r cm_rf$overall['Accuracy']`.
+
+#### Boosting Model
+
+Let's try a Boosting model. 
+
+```{r, cached=TRUE}
+gb_cont <- trainControl(method="repeatedcv", number=3, verboseIter=FALSE)
+mod_bm <- train(classe~., data=training, method="gbm",
+                trControl=gb_cont, verbose=FALSE)
+
+## Prediction on validation
+pred_bm <- predict(mod_bm, validation)
+cm_bm <- confusionMatrix(pred_bm, validation$classe)
+```
+
+Accuracy of `r cm_bm$overall['Accuracy']`.
+
+### Results for the test data
+
+Based on the chosen model, Random Forest:
+
+Acuracy: `r round(cm_rf$overall['Accuracy'], 4)`
+
+Expected Out-of-Sample Error: `r round(1 - cm_rf$overall['Accuracy'], 4) * 100` %
+
+With a low error, it is expected that the model gets almost every of the 20 test cases.
+
+```{r}
+pred_rf <- predict(mod_rf, test_data)
+```
+
+The results are:
+
+```{r}
+pred_rf
+```
+
+
